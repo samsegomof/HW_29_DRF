@@ -1,16 +1,15 @@
 import json
 
-from django.core.paginator import Paginator
+from django.db.models import Q
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404
 
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import DetailView, CreateView, UpdateView, DeleteView, ListView
+from rest_framework.generics import ListAPIView, CreateAPIView, RetrieveAPIView, UpdateAPIView, DestroyAPIView
 
 from ads.models import Category, Ad
-from avito import settings
-from users.models import User
+from ads.serializers import AdCreateSerializer, AdSerializer, AdUpdateSerializer, AdImageSerializer
 
 
 def root(request):
@@ -86,107 +85,77 @@ class CategoryDetailView(DetailView):
                             safe=False, json_dumps_params={"ensure_ascii": False})
 
 
-@method_decorator(csrf_exempt, name="dispatch")
-class AdListView(ListView):
-    model = Ad
-    qs = Ad.objects.all()
+class AdListView(ListAPIView):
+    queryset = Ad.objects.all()
+    serializer_class = AdSerializer
 
     def get(self, request, *args, **kwargs):
-        super().get(self, *args, **kwargs)
-        self.object_list = self.object_list.order_by("-price")
-        paginator = Paginator(object_list=self.object_list, per_page=settings.TOTAL_ON_PAGE)
-        page = request.GET.get("page")
-        page_obj = paginator.get_page(page)
+        """Фильтр по id категории"""
+        categories = request.GET.getlist('cat', None)
+        cat_query = None
 
-        result_method = []
+        for cat_id in categories:
+            if cat_query is None:
+                cat_query = Q(category__id__exact=cat_id)
+            else:
+                cat_query |= Q(category__id__exact=cat_id)
 
-        for ad in page_obj:
-            result_method.append(
-                {"id": ad.id,
-                 "name": ad.name,
-                 "author": ad.author.username,
-                 "price": ad.price,
-                 "description": ad.description,
-                 "is_published": ad.is_published,
-                 "image": ad.image.url,
-                 "category": ad.category.name if ad.category else "Нет категории"
-                 })
+        if cat_query:
+            self.queryset = self.queryset.filter(cat_query)
 
-        return JsonResponse({"ads": result_method, "Current_page": page_obj.number, "Total_ads": page_obj.paginator.count},
-                            safe=False, json_dumps_params={"ensure_ascii": False})
+        """Фильтр по тексту объявления"""
+        ad_name = request.GET.get('text', None)
+        if ad_name:
+            self.queryset = self.queryset.filter(
+                name__icontains=ad_name
+            )
 
+        """Фильтр по местоположению пользователя"""
+        user_location = request.GET.get('location', None)
+        if user_location:
+            self.queryset = self.queryset.filter(
+                author__location__name__icontains=user_location
+            )
 
-@method_decorator(csrf_exempt, name="dispatch")
-class AdCreateView(CreateView):
-    model = Ad
-    fields = ["name", "author", "price", "description", "is_published", "category"]
+        """Фильтр по цене"""
+        price_from = request.GET.get('price_from', None)
+        price_to = request.GET.get('price_to', None)
+        if price_from:
+            self.queryset = self.queryset.filter(
+                price__gte=price_from
+            )
+        if price_to:
+            self.queryset = self.queryset.filter(
+                price__lte=price_to
+            )
 
-    def post(self, request, *args, **kwargs):
-        data = json.loads(request.body)
-
-        author = get_object_or_404(User, id=data["author"])
-        category = get_object_or_404(Category, id=data["category"])
-
-        new_ad = Ad.objects.create(
-            name=data["name"],
-            author=author,
-            price=data["price"],
-            description=data["description"],
-            is_published=data["is_published"] if "is_published" in data else False,
-            category=category
-        )
-
-        return JsonResponse(
-            {"id": new_ad.id,
-             "name": new_ad.name,
-             "author": new_ad.author.username,
-             "price": new_ad.price,
-             "description": new_ad.description,
-             "is_published": new_ad.is_published,
-             "category": new_ad.category.name
-             },
-            safe=False, json_dumps_params={"ensure_ascii": False}
-        )
+        return super().get(self, *args, **kwargs)
 
 
-@method_decorator(csrf_exempt, name="dispatch")
-class AdUploadImageView(UpdateView):
-    model = Ad
-    fields = ["image"]
-
-    def post(self, request, *args, **kwargs):
-        self.object = self.get_object()
-        self.object.image = request.FILES.get("image")
-        self.object.save()
-
-        return JsonResponse(
-            {"id": self.object.id,
-             "name": self.object.name,
-             "author": self.object.author.username,
-             "price": self.object.price,
-             "description": self.object.description,
-             "is_published": self.object.is_published,
-             "image": self.object.image.url,
-             "category": self.object.category.name
-             },
-            safe=False, json_dumps_params={"ensure_ascii": False}
-        )
+class AdCreateView(CreateAPIView):
+    """Создание пользователя"""
+    queryset = Ad.objects.all()
+    serializer_class = AdCreateSerializer
 
 
-class AdDetailView(DetailView):
-    model = Ad
+class AdDetailView(RetrieveAPIView):
+    """Показ объявление по id"""
+    queryset = Ad.objects.all()
+    serializer_class = AdSerializer
 
-    def get(self, request, *args, **kwargs):
-        ad = self.get_object()
-        return JsonResponse(
-            {"id": ad.id,
-             "name": ad.name,
-             "author": ad.author.username,
-             "price": ad.price,
-             "description": ad.description,
-             "is_published": ad.is_published,
-             "image": ad.image.url,
-             "category": ad.category.name
-             },
-            safe=False, json_dumps_params={"ensure_ascii": False}
-        )
+
+class AdUpdateView(UpdateAPIView):
+    """Обновить объявление по id"""
+    queryset = Ad.objects.all()
+    serializer_class = AdUpdateSerializer
+
+
+class AdUploadImageView(UpdateAPIView):
+    queryset = Ad.objects.all()
+    serializer_class = AdImageSerializer
+
+
+class AdDeleteView(DestroyAPIView):
+    """Удалить объявление по id"""
+    queryset = Ad.objects.all()
+    serializer_class = AdSerializer

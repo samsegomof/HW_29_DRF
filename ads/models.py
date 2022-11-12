@@ -23,9 +23,9 @@ class Ad(models.Model):
     name = models.CharField(verbose_name="Название объявления", max_length=100, unique=True)
     author = models.ForeignKey(User, verbose_name="Автор", null=True, on_delete=models.CASCADE, related_name="ads")
     price = models.PositiveIntegerField(verbose_name="Цена", null=True)
-    description = models.CharField(max_length=500, null=True)
+    description = models.TextField(max_length=2000, null=True)
     is_published = models.BooleanField(verbose_name="Объявление размещено?", default=False)
-    image = models.ImageField(verbose_name="Изображение", upload_to="images",  null=True, blank=True)
+    image = models.ImageField(verbose_name="Изображение", upload_to="images/",  null=True, blank=True)
     category = models.ForeignKey(Category, verbose_name="Категория", null=True, on_delete=models.CASCADE, related_name="ads")
 
     def __str__(self):
